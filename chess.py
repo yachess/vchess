@@ -1,6 +1,7 @@
 import copy
 
 init_pos = "rnbqkbnrpppppppp................................PPPPPPPPRNBQKBNR"
+init_fen = "rnbqkbnr/pppppppp/8/8/8/8/PPPPPPPP/RNBQKBNR w KQkq - 0 1"
 
 q_atks=[]
 b_atks=[]
@@ -34,7 +35,7 @@ for i in range(64):
     wp_atks.append([])
 
 # list indices
-#  0 - 1 - 2
+#  0   1   2
 #    \ | / 
 #  3 -sqr- 4
 #    / | \
@@ -161,15 +162,23 @@ class Move:
         return "{}>{}".format(sqr_to_pgn(self.src),sqr_to_pgn(self.dst))
 
 # Castling rights constants
-cr_K=0b0001
-cr_Q=0b0010
-cr_k=0b0100
-cr_q=0b1000
+#r_K=0b0001
+#r_Q=0b0010
+#r_k=0b0100
+#r_q=0b1000
+
+cr_K= 1 << 0
+cr_Q= 1 << 1
+cr_k= 1 << 2
+cr_q= 1 << 3
 
 class Chess:
-    def __init__(self, fen = None):
+    def __init__(self):
         print("init")
         self.bb = {}
+        self._fire_action = None
+
+    def setup(self, fen = None):
         self.t = 1
         self.ply = 0
         self.crights = cr_K | cr_Q | cr_k | cr_q
@@ -177,10 +186,34 @@ class Chess:
         # initialize bitboards
         for p in 'prnbqkrPRNBQKR':
             self.bb[p]=0
-        for i in range(len(init_pos)):
-            if init_pos[i] != '.':
-                self.bb[init_pos[i]] |= 1 << i
-         
+
+        if fen == None:
+            fen = init_fen
+        i=0
+        tokens = fen.split()
+        for c in tokens[0]:
+            if c.isalpha():
+                self.bb[c] |= 1 << i
+                i+=1
+            elif c.isdigit():
+                i+=int(c)
+        self.t = 1 if tokens[1] == "w" else "b"
+    
+        self.crights = 0
+        if "K" in tokens[2]:
+            self.crights |= cr_K
+        if "Q" in tokens[2]:
+            self.crights |= cr_Q
+        if "k" in tokens[2]:
+            self.crights |= cr_k
+        if "q" in tokens[2]:
+            self.crights |= cr_q
+        
+        self.ep_sqr = None if tokens[3]=="-" else tokens[3]
+
+        if self._fire_action is not None:
+            self._fire_action("<<setup>>",fen)
+
     def print(self):
         for sq in range(64):
             b = 1 << sq
@@ -193,15 +226,46 @@ class Chess:
                 print(" .", end='')
             if sq % 8 == 7:
                 print("")
-        pass
 
+    def fen(self):
+        # encode FEN notation
+        l=[]
+        spc = 0
+        for sq in range(64):
+            b = 1 << sq
+            found = False
+            for p in "prnbqkPRNBQK":
+                if self.bb[p] & b:
+                    l.append(p)
+                    found = True
+            if not found:
+                spc += 1
+            if sq % 8 == 7 and sq != 63:
+                if spc > 0:
+                    l.append(str(spc))
+                    spc = 0
+                l.append("/")
+        l.append(" ")
+        l.append("b" if self.t == 0 else "w")
+        l.append(" ")
+        if self.crights == 0:
+            l.append ("-")
+        else:
+            l.append("K" if self.crights & cr_K else "")
+            l.append("Q" if self.crights & cr_Q else "")
+            l.append("k" if self.crights & cr_k else "")
+            l.append("q" if self.crights & cr_q else "")
+        l.append(" ")
+        l.append("-" if self.ep_sqr == None else sqr_to_pgn(self.ep_sqr))
+        l.append(" 0 ")
+        l.append(str(self.ply+1))
+        return "".join(l)
+        
     def put(self,sq,pc):
         self.bb[pc] |= 1 << sq
-        pass
 
     def remove(self,sq,pc):
         self.bb[pc] &= ~(1 << sq)
-        pass
 
     def get_all_moves(self):
         occ = [0,0]
@@ -356,37 +420,40 @@ class Chess:
             elif mv.src==4 and mv.dst==2:
                 self.move('r',0,3)
             self.crights &= ~(cr_k|cr_q)
-        elif piece is 'K':
+        elif piece == 'K':
             if mv.src==60 and mv.dst==62:
                 self.move('R',63,61)
             elif mv.src==60 and mv.dst==58:
                 self.move('R',56,59)
             self.crights &= ~(cr_K|cr_Q)
         #promotion
-        elif piece is 'p':
+        elif piece == 'p':
             if mv.dst // 8 == 7:
                 pass
             elif mv.dst == self.ep_sqr:  #ep capture
                 self.remove('p', mv.dst - 8)
-        elif piece is 'P':
+        elif piece == 'P':
             if mv.dst // 8 == 0:
                 pass
             elif mv.dst == self.ep_sqr:
                 self.remove('p', mv.dst + 8)
         #ep square set/unset
-        if piece is 'p' and mv.dst - mv.src == 16:  #ep-sqr set
+        if piece == 'p' and mv.dst - mv.src == 16:  #ep-sqr set
             self.ep_sqr = mv.src + 8
-        elif piece is 'P' and mv.src - mv.dst == 16:
+        elif piece == 'P' and mv.src - mv.dst == 16:
             self.ep_sqr = mv.src - 8
         else:
             self.ep_sqr = None
         self.t ^= 1
         self.ply += 1
 
+
 if __name__=="__main__":
     build_atk_maps()
     chess = Chess()
+    chess.setup()
 
+    print(chess.fen())
     while True:
         chess.print()
         mvs = chess.get_all_moves()
