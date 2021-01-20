@@ -1,4 +1,5 @@
 import tkinter as tk
+from PIL import Image, ImageEnhance, ImageTk
 import chess
 
 cs = 80
@@ -11,77 +12,111 @@ class ChessBoard(tk.Canvas):
         for sq in range(64):
             i,j = sq % 8, sq // 8
             x,y = i * cs, j * cs
-            =self.create_rectangle(
+            self.create_rectangle(
                     x, y, x+cs, y+cs, width=0, 
                     fill= "green" if (i+j)%2 == 1 else "light green")
 #       self.create_image(cs/2, cs/2, image=pieces['P'], anchor="center")
+        self.bind("<Button-1>",self._handle_click)
+        self.bind("<MouseWheel>",self._wheel)
         self.pack()
+
+        self.selected_sqrs = []
+        self.selected_squares_objs = []
+
+        self._fire_action = None
 
     def setup (self, fen):
         tokens = fen.split()[0]
-        i=0
+        sq=0
         for c in tokens:
             if c.isalpha():
-                x, y = i%8, i//8
-                self.pieces[i]=self.create_image(x*cs+cs/2, y*cs+cs/2, image=pieces[c],
-                anchor="center")
-                i+=1
+                x, y = sq%8, sq//8
+                self.pieces[sq]=self.create_image(
+                        x*cs+cs/2, y*cs+cs/2, image=pieces[c],
+                        anchor="center")
+                sq+=1
             elif c.isdigit():
-                i+=int(c)
+                sq+=int(c)
+    
+    def _handle_click(self, evt):
+        x, y = evt.x // cs, evt.y // cs
+        sq = y*8 + x
+
+        if len(self.selected_sqrs) < 2:
+            self.selected_sqrs.append(sq)
+            self.select_square(sq)
+            if len(self.selected_sqrs) >= 2:
+                if self._fire_action is not None:
+                    self._fire_action("<<request_move>>", self.selected_sqrs)
+                for o in self.selected_squares_objs:
+                    self.delete(o)
+                self.selected_squares_objs = []
+                self.selected_sqrs = []
+
+
+    def _wheel(self, evt):
+        print("wheel:{}".format(evt))
 
     def set (self, pc, sq):
         x, y = sq%8, sq//8
-        self.pieces[i]=self.create_image(x*cs+cs/2, y*cs+cs/2,
+        self.pieces[sq]=self.create_image(
+                x*cs+cs/2, y*cs+cs/2,
                 image=pieces[pc], anchor="center")
     
     def remove (self, sq):
-        i = sq // 8 + sq % 8
-        self.remove(self.pieces[i])
-        del self.pieces[i]
+        try:
+            self.delete(self.pieces[sq])
+            del self.pieces[sq]
+        except KeyError:
+            pass
+
+    def select_square (self, sq):
+        x, y = sq%8, sq//8
+        i=self.create_rectangle(
+                x*cs, y*cs,(x+1)*cs-1,(y+1)*cs-1,
+                outline = "red" )
+        self.selected_squares_objs.append(i)
+    
 
 class Application(tk.Frame):
     def __init__(self, master=None):
         super().__init__(master)
         self.master = master
         self.pack()
+        self.chessboard = None
+        self.chess =None
         self.create_widgets()
 
     def create_widgets(self):
         self.chessboard = ChessBoard(self)
         self.chess = chess.Chess()
         self.chess._fire_action = self._handle_action
+        self.chessboard._fire_action = self._handle_action
         self.chess.setup() 
 
         self.hi_there = tk.Button(self)
         self.hi_there["text"] = "Hello World\n(click me)"
-        self.hi_there["command"] = self.say_hi
         self.hi_there.pack(side="top")
         self.quit = tk.Button(
                 self, text="QUIT", fg="red",
                 command=self.master.destroy)
         self.quit.pack(side="bottom")
 
-    def say_hi(self):
-        print("hi there, everyone!")
-
     def _handle_action(self, action, args):
-        print(action)
         if action == "<<setup>>":
             self.chessboard.setup(args)
-            pass
         elif action == "<<move>>":
-            pass
-        elif action == "<<move>>":
+            print(" ### Move ### {} -> {}".format(args["src"],args["dst"]))
+            self.chessboard.remove(args["src"])
+            self.chessboard.set(args["piece"], args["dst"])
             print("<<move>>")
-            pass
         elif action == "<<remove>>":
             print("<<remove>>")
-            pass
-        pass
-
-
-from PIL import Image, ImageEnhance, ImageTk
-
+        elif action == "<<request_move>>":
+            if self.chess.make(args[0],args[1]):
+                pass
+            else:
+                print("illegal move:{}->{}".format(args[0],args[1]))
 
 
 def resize_image(img, w, h):
@@ -100,8 +135,6 @@ def darker_image(img, ratio):
                     int(pxls[i,j][2] * alpha + beta),
                     pxls[i,j][3])
     return img
-import PIL
-from PIL import Image
 
 root = tk.Tk()
 pieces={}

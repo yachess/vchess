@@ -152,7 +152,7 @@ def build_atk_maps():
         if sq + delta >=0 and sq % 8 > (sq + delta) % 8:
             wp_atks[sq].append(sq + delta)
 
-class Move:
+class Move(object):
     def __init__(self, src, dst):
         self.src, self.dst = src, dst
         self.pgn = ""
@@ -172,11 +172,24 @@ cr_Q= 1 << 1
 cr_k= 1 << 2
 cr_q= 1 << 3
 
-class Chess:
+class Chess(object):
     def __init__(self):
-        print("init")
         self.bb = {}
         self._fire_action = None
+        self.t = -1
+        self.ply = -1
+        self.crights = -1
+        self.ep_sqr = None
+
+    def __copy__(self):
+        cp = Chess()
+        cp.bb=copy.deepcopy(self.bb)
+        cp._fire_action = None
+        cp.t = self.t
+        cp.ply = self.ply
+        cp.crights = self.crights
+        cp.ep_sqr = self.ep_sqr
+        return cp
 
     def setup(self, fen = None):
         self.t = 1
@@ -261,11 +274,11 @@ class Chess:
         l.append(str(self.ply+1))
         return "".join(l)
         
-    def put(self,sq,pc):
-        self.bb[pc] |= 1 << sq
+#   def put(self,sq,pc):
+#       self.bb[pc] |= 1 << sq
 
-    def remove(self,sq,pc):
-        self.bb[pc] &= ~(1 << sq)
+#   def remove(self,sq,pc):
+#       self.bb[pc] &= ~(1 << sq)
 
     def get_all_moves(self):
         occ = [0,0]
@@ -381,29 +394,21 @@ class Chess:
                     for tsq in n_atks[sq]:
                         if empt & 1 << tsq or occ[0] & 1 << tsq:
                             yield Move(sq, tsq)
+
     def is_self_checking_move(self, mv):
-        c = copy.deepcopy(self)
-        k_pos = c.bb['k' if c.t == 0 else 'K'].bit_length()-1
-        c.make_move(mv)
+        cp = copy.copy(self)
+#       cp._fire_action = None
+
+        k_pos = cp.bb['k' if cp.t == 0 else 'K'].bit_length()-1
+        cp.move(mv)
         atks = 0
-        for m in c.get_all_moves():
+        for m in cp.get_all_moves():
 #           atks |= 1 << m.dst
             if m.dst == k_pos:
                 return True
         return False 
 
-    def move(self, piece, src, dst):
-        self.bb[piece] &= ~(1 << src)
-        self.bb[piece] |= 1 << dst
-        if self._fire_action is not None:
-            self._fire_action("<<move>>",[piece,src,dst])
-
-    def remove(self, piece, sqr):
-        self.bb[piece] &= ~(1 << sqr)
-        if self._fire_action is not None:
-            self._fire_action("<<remove>>",[piece,src,dst])
-
-    def make_move(self, mv):
+    def move(self, mv):
         piece, capt = '',''
         for k,v in self.bb.items():
             if v & 1 << mv.dst:
@@ -412,7 +417,7 @@ class Chess:
         for k,v in self.bb.items():
             if v & 1 << mv.src:
                 piece = k
-                self.move(piece, mv.src, mv.dst)
+                self._move(piece, mv.src, mv.dst)
         #castling
         if piece == 'k':
             if mv.src==4 and mv.dst==6:
@@ -431,12 +436,12 @@ class Chess:
             if mv.dst // 8 == 7:
                 pass
             elif mv.dst == self.ep_sqr:  #ep capture
-                self.remove('p', mv.dst - 8)
+                self._remove('p', mv.dst - 8)
         elif piece == 'P':
             if mv.dst // 8 == 0:
                 pass
             elif mv.dst == self.ep_sqr:
-                self.remove('p', mv.dst + 8)
+                self._remove('p', mv.dst + 8)
         #ep square set/unset
         if piece == 'p' and mv.dst - mv.src == 16:  #ep-sqr set
             self.ep_sqr = mv.src + 8
@@ -447,25 +452,39 @@ class Chess:
         self.t ^= 1
         self.ply += 1
 
+    def make(self, src, dst):
+        print("MAKE--:{}->{}".format(src,dst))
+
+        legal_moves = (list(filter(lambda x: not self.is_self_checking_move(x),
+            self.get_all_moves())))
+        for m in legal_moves:
+            if src == m.src and dst == m.dst:
+                print("MAKE-Move()")
+                self.move(m)
+                return True
+        return False
+
+    def _move(self, piece, src, dst):
+        self.bb[piece] &= ~(1 << src)
+        self.bb[piece] |= 1 << dst
+        if self._fire_action is not None:
+            self._fire_action("<<move>>",{"piece":piece,"src":src,"dst":dst})
+
+    def _remove(self, piece, sqr):
+        self.bb[piece] &= ~(1 << sqr)
+        if self._fire_action is not None:
+            self._fire_action("<<remove>>",[piece,sqr])
 
 if __name__=="__main__":
     build_atk_maps()
     chess = Chess()
     chess.setup()
-
-    print(chess.fen())
+    
     while True:
         chess.print()
-        mvs = chess.get_all_moves()
-        legal_moves = (list(filter(lambda x: not chess.is_self_checking_move(x),mvs)))
         pgn = input("{} to move,Enter your move(e2e4 etc):".format("Black" if chess.t==0 else "White"))
-        handled = False
-        for m in legal_moves:
-            mv = Move(pgn_to_sqr(pgn[0:2]),pgn_to_sqr(pgn[2:4]))
-            if mv.src == m.src and mv.dst == m.dst:
-                chess.make_move(mv)
-                handled = True
-        if not handled:
+        if not chess.make(pgn_to_sqr(pgn[0:2]),pgn_to_sqr(pgn[2:4])):
             print("Wrong move.")
+
 
 
